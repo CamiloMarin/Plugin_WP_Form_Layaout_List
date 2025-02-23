@@ -53,36 +53,40 @@ function detectar_envio_formulario() {
 
         document.addEventListener("DOMContentLoaded", function () {
 
-            let _all_forms = document.querySelectorAll("form input[type=submit]");
+            let _all_forms_send_btn = document.querySelectorAll("form input[type=submit]");
 
-            _all_forms.forEach(form => {
-                form.addEventListener("click", async function(e){
+            _all_forms_send_btn.forEach(_form_send_btn => {
+                _form_send_btn.addEventListener("click", async function(e){
                     e.preventDefault(); // Evita que el formulario se envíe y recargue la página
-
+                    
+                    // formulario del objeto _form
+                    let _form_element = _form_send_btn.closest("form");
                     // Prevenir el evento de submit
-                    let formData = new FormData(form.closest('form')); // Usamos closest para asegurar que el formulario correcto se seleccione
+                    let formData = new FormData(_form_element); 
 
+                    formData.append("action", "capturar_formulario");
+                            
                     try {
-                        // Hacer la solicitud de forma asíncrona
                         let response = await fetch("<?php echo admin_url('admin-ajax.php'); ?>", {
                             method: "POST",
-                            headers: { "Content-Type": "application/x-www-form-urlencoded" },
-                            body: new URLSearchParams({
-                                action: "capturar_formulario",
-                                ...Object.fromEntries(formData),
-                            }),
+                            body: formData,
                         });
 
-                        // Esperar respuesta y procesarla
                         let data = await response.json();
                         console.log("Formulario capturado:", data);
 
-                        // Si todo salió bien, envía el formulario después de capturar la información
-                        form.closest('form').submit();
+                        if (data.success) {
+                            alert("Formulario enviado con éxito.");
+                            _form_element.reset(); // Opcional: limpiar formulario
+                        } else {
+                            alert("Error: " + data.message);
+                        }
 
                     } catch (error) {
                         console.error("Error al capturar el formulario:", error);
                     }
+                       
+
                 });
             });
 
@@ -101,19 +105,33 @@ function capturar_formulario() {
     global $wpdb;
     $table_name = $wpdb->prefix . 'tabla_pagina_unica';
 
-    $data = array_map('sanitize_text_field', $_POST); // Limpia los datos
+    // Excluyo los datos innecesarios
 
-    if (!empty($data)) {
+    $excluir = ['action','submit'];
+    
+    // filtro los datos del formulario
+    $form_data = array_filter($_POST, function($key) use ($excluir){
+        return !in_array($key, $excluir);
+    }, ARRAY_FILTER_USE_KEY);
+
+    // Sanitizar valores
+    $form_data = array_map('sanitize_text_field', $form_data);
+
+    if (!empty($form_data)) {
         $wpdb->insert(
             $table_name,
-            array('name' => json_encode($data)), // Guarda como JSON
-            array('%s')
+            array(
+                'name' => sanitize_text_field($form_data['nombre'] ?? 'Sin nombre'), // Puedes usar un campo clave
+                'data' => json_encode($form_data, JSON_UNESCAPED_UNICODE), // Guarda el JSON
+            ),
+            array('%s', '%s')
         );
 
-        wp_send_json_success(['message' => 'Formulario capturado y almacenado.']);
+        wp_send_json_success(['message' => 'Formulario capturado y almacenado.', 'data' => $form_data]);
     } else {
-        wp_send_json_error(['message' => 'No se recibió información.']);
+        wp_send_json_error(['message' => 'No se recibió información válida.']);
     }
+
 }
 add_action('wp_ajax_capturar_formulario', 'capturar_formulario');
 add_action('wp_ajax_nopriv_capturar_formulario', 'capturar_formulario');
